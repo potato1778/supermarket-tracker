@@ -12,8 +12,18 @@ cur.execute("CREATE TABLE IF NOT EXISTS contacts "
 '''cur.execute("INSERT INTO contacts (ID, name, phone_number, email) " \
 "VALUES (1, '小姜', '13133556879', '123@qq.com')")'''
 
-sqlinsert4 = "INSERT INTO contacts (ID, name, phone_number, email)" \
+'''sqlinsert4 = "INSERT INTO contacts (ID, name, phone_number, email)" \
 "                       VALUES (?, ?, ?, ?)"
 DATA1 = [2, "小da姜", "13133556879", "123@qq.com"]
 cur.execute(sqlinsert4, DATA1)
 con.commit()
+'''
+
+cur.execute("SELECT * FROM contacts")
+allp = cur.fetchall()
+for i in allp:
+    print(f"ID为:{i[0]}")
+    print(f"name为:{i[1]}")
+sqlselect = "SELECT * FROM contacts WHERE name = ?"
+cur.execute(sqlselect, ('小姜',))
+print(cur.fetchone())

@@ -1,6 +1,6 @@
 # 文件名: product_search.py (v_victory)
 
-import requests
+import requests 
 import json
 import base64
 import sqlite3
