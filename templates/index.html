@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html> 
+<head>
+    <meta charset="UTF-8">
+    <title>Supermarket discount helper</title>
+</head>
+
+<body>
+    <h1>You can search discount items here</h1>
+    <input type="text" id="searchInput" placeholder="please enter the discount merchandise name">
+    
+    <button id="searchButton">Go!</button>
+
+    <hr> <!-- hr 标签可以创建一条水平分割线 -->
+
+    <h2>Search results:</h2>
+    <div id="resultsContainer">
+    </div>
+    <script>
+        console.log("JavaScript soul has been infused!");
+
+        // --- 1. 在脚本开始时，先“抓住”我们需要操作的HTML元素 ---
+        const searchButton = document.getElementById("searchButton");
+        const searchInput = document.getElementById("searchInput");
+        
+        // --- 2. 定义当“点击搜索”事件发生时，需要执行的所有逻辑 ---
+        function handleSearchClick() {
+            console.log("The button was clicked!");
+
+            // a. 获取用户在输入框里输入的当前值
+            const keyword = searchInput.value;
+
+            // b. 健壮性检查：如果用户什么都没输入就点了搜索，我们应该提示他
+            if (!keyword) {
+                alert("Please enter the product you want to search for!"); // alert会弹出一个简单的警告框
+                return; // 退出函数，不执行后续的网络请求
+            }
+
+            console.log(`Ready to launch API request for keyword “${keyword}”...`);
+
+            // c. 使用模板字符串，动态构建API的URL
+            const apiUrl = `/search?keyword=${keyword}`;
+
+            // d. 使用fetch发起网络请求，实现异步
+            fetch(apiUrl)
+                .then(response => { //箭头函数 更强大的Python lambda 匿名
+
+                    // 如果服务器响应不成功 (比如 404, 500)
+                    if (!response.ok) {
+                        // 创建并抛出一个错误，它会被下面的 .catch 捕获
+                        throw new Error(`Network response error, status code: ${response.status}`);
+                    }
+                    // 解析响应的JSON数据
+                    return response.json();
+                })
+                .then(data => {
+                    // 当JSON数据成功解析后，我们在这里处理它
+                    console.log("Successfully fetched product data from backend:", data);
+                    // (明天，我们将在这里把数据显示在页面上)
+                })
+                .catch(error => {
+                    // 统一处理整个请求链中发生的任何错误
+                    console.error("An error occurred while fetching data:", error);
+                    alert("Failed to get data, please check the network or try again later.");
+                });
+        }
+
+        // --- 3. 将我们定义好的函数，“绑定”到按钮的“click”事件上 ---
+        searchButton.addEventListener("click", handleSearchClick);
+
+    </script>
+</body>
+
+
+</html>
