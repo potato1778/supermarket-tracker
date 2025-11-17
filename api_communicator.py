@@ -56,7 +56,7 @@ def fetch_search_results(payload):
 # =============      用例测试区      ====================
 # =======================================================
 if __name__ == "__main__":
-    test_keyword = "ost"
+    test_keyword = "Ost"
     print(f"--- 正在为关键词 '{test_keyword}' 创建Payload ---")
     test_payload = create_search_payload(test_keyword)
     print("生成的Payload:", json.dumps(test_payload, indent=2))
@@ -72,5 +72,6 @@ if __name__ == "__main__":
         # 我们可以进一步检查 'value' 里的 'data' 是否是列表
         if 'value' in results and 'data' in results['value']:
             print(f"在 'value' -> 'data' 中找到了 {len(results['value']['data'])} 个商品。")
+            print("第一个商品的详细信息:", json.dumps(results['value']['data'][0], indent=2))
     else:
         print("\n获取结果失败。")

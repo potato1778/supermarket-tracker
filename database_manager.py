@@ -31,13 +31,13 @@ def store_products(product_list, keyword):
             id = item.get("publicId")
             name = item.get("name")
             price = item.get("price", 0.0)
-            business = item.get("business", "None").get("name")
+            business_name = item.get("business", {}).get("name")
             unitPrice = item.get("unitPrice", 0.0)
             cur.execute("""
                 INSERT OR REPLACE INTO products
                 (id, product_name, price, supermarket, unit_price, keyword)
                 VALUES (?, ?, ?, ?, ?, ?)
-            """, (id, name, price, business, unitPrice, keyword))
+            """, (id, name, price, business_name, unitPrice, keyword))
         con.commit()
         print(f"{len(product_list)}件关于'{keyword}'的商品已成功存入数据库。")
     except sqlite3.Error as e:

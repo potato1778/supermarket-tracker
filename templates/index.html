@@ -1,75 +1,131 @@
 <!DOCTYPE html>
-<html> 
+<html lang="zh-CN"> 
 <head>
     <meta charset="UTF-8">
-    <title>Supermarket discount helper</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>超市折扣搜索引擎</title>
+    <style>
+        /* CSS样式部分保持不变，让页面更美观 */
+        body { font-family: sans-serif; background-color: #f4f4f9; color: #333; margin: 0; padding: 20px; }
+        .container { max-width: 900px; margin: 0 auto; background-color: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        h1 { color: #0056b3; text-align: center; }
+        .search-box { display: flex; gap: 10px; margin-bottom: 20px; }
+        #searchInput { flex-grow: 1; padding: 10px; font-size: 16px; border: 1px solid #ccc; border-radius: 4px; }
+        #searchButton { padding: 10px 20px; font-size: 16px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        #searchButton:hover { background-color: #0056b3; }
+        #resultsContainer { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 20px; }
+        .product-card { border: 1px solid #ddd; border-radius: 8px; padding: 15px; background-color: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.05); text-align: center; display: flex; flex-direction: column; justify-content: space-between;}
+        .product-card img { max-width: 100%; height: 150px; object-fit: contain; margin-bottom: 10px; }
+        .product-card h3 { font-size: 1em; margin: 10px 0; flex-grow: 1;}
+        .product-card p { font-size: 0.9em; color: #666; }
+        .loading-spinner { border: 5px solid #f3f3f3; border-top: 5px solid #3498db; border-radius: 50%; width: 50px; height: 50px; animation: spin 1s linear infinite; margin: 20px auto; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
 </head>
-
 <body>
-    <h1>You can search discount items here</h1>
-    <input type="text" id="searchInput" placeholder="please enter the discount merchandise name">
-    
-    <button id="searchButton">Go!</button>
-
-    <hr> <!-- hr 标签可以创建一条水平分割线 -->
-
-    <h2>Search results:</h2>
-    <div id="resultsContainer">
+    <div class="container">
+        <h1>超市折扣搜索引擎</h1>
+        <div class="search-box">
+            <input type="text" id="searchInput" placeholder="输入商品名，如 mjölk, ost, ägg...">
+            <button id="searchButton">搜索</button>
+        </div>
+        <hr>
+        <div id="resultsContainer"></div>
     </div>
-    <script>
-        console.log("JavaScript soul has been infused!");
 
-        // --- 1. 在脚本开始时，先“抓住”我们需要操作的HTML元素 ---
+    <script>
         const searchButton = document.getElementById("searchButton");
         const searchInput = document.getElementById("searchInput");
-        
-        // --- 2. 定义当“点击搜索”事件发生时，需要执行的所有逻辑 ---
-        function handleSearchClick() {
-            console.log("The button was clicked!");
+        const resultsContainer = document.getElementById("resultsContainer");
 
-            // a. 获取用户在输入框里输入的当前值
-            const keyword = searchInput.value;
+        // ==============================================================================
+        // "铸造厂" - 采纳了你的所有建议
+        // ==============================================================================
+        function createProductCard(product) {
+            const card = document.createElement("div");
+            card.className = "product-card";
 
-            // b. 健壮性检查：如果用户什么都没输入就点了搜索，我们应该提示他
-            if (!keyword) {
-                alert("Please enter the product you want to search for!"); // alert会弹出一个简单的警告框
-                return; // 退出函数，不执行后续的网络请求
+            const img = document.createElement("img");
+            img.src = product.image;
+            img.alt = product.name;
+
+            const title = document.createElement("h3");
+            title.textContent = product.name;
+
+            const info = document.createElement("p");
+            
+            // --- 1. 新的价格显示逻辑 ---
+            const priceType = product.price_type;
+            const priceValue = product.price_value;
+            let priceText;
+
+            // 使用 switch 语句，可读性更好
+            switch (priceType) {
+                case "membershipPrice":
+                    priceText = `会员价: ${priceValue} kr`;
+                    break;
+                case "appPrice":
+                    priceText = `App专享价: ${priceValue} kr`;
+                    break;
+                case "fromPrice":
+                    priceText = `${priceValue} kr 起`;
+                    break;
+                case "price":
+                    priceText = `${priceValue} kr`;
+                    break;
+                default: // 'none'
+                    priceText = "价格未提供";
             }
+            
+            // --- 2. 组合最终显示的文本 ---
+            info.textContent = `超市: ${product.supermarket} | ${priceText}`;
 
-            console.log(`Ready to launch API request for keyword “${keyword}”...`);
+            card.appendChild(img);
+            card.appendChild(title);
+            card.appendChild(info);
+            
+            return card;
+        }
 
-            // c. 使用模板字符串，动态构建API的URL
+        function renderProducts(productList) {
+            resultsContainer.innerHTML = "";
+            if (!productList || productList.length === 0) {
+                resultsContainer.textContent = "没有找到相关的打折商品。";
+                return;
+            }
+            for (const product of productList) {
+                const card = createProductCard(product);
+                resultsContainer.appendChild(card);
+            }
+        }
+        
+        function handleSearchClick() {
+            const keyword = searchInput.value.trim();
+            if (!keyword) {
+                alert("请输入要搜索的商品！");
+                return;
+            }
+            resultsContainer.innerHTML = '<div class="loading-spinner"></div>';
             const apiUrl = `/search?keyword=${keyword}`;
 
-            // d. 使用fetch发起网络请求，实现异步
             fetch(apiUrl)
-                .then(response => { //箭头函数 更强大的Python lambda 匿名
-
-                    // 如果服务器响应不成功 (比如 404, 500)
-                    if (!response.ok) {
-                        // 创建并抛出一个错误，它会被下面的 .catch 捕获
-                        throw new Error(`Network response error, status code: ${response.status}`);
-                    }
-                    // 解析响应的JSON数据
+                .then(response => {
+                    if (!response.ok) throw new Error(`网络响应错误: ${response.status}`);
                     return response.json();
                 })
                 .then(data => {
-                    // 当JSON数据成功解析后，我们在这里处理它
-                    console.log("Successfully fetched product data from backend:", data);
-                    // (明天，我们将在这里把数据显示在页面上)
-                })
+                    renderProducts(data);
+})
                 .catch(error => {
-                    // 统一处理整个请求链中发生的任何错误
-                    console.error("An error occurred while fetching data:", error);
-                    alert("Failed to get data, please check the network or try again later.");
+                    console.error("获取数据时发生错误:", error);
+                    resultsContainer.textContent = "加载失败，请检查网络或稍后再试。";
                 });
         }
 
-        // --- 3. 将我们定义好的函数，“绑定”到按钮的“click”事件上 ---
         searchButton.addEventListener("click", handleSearchClick);
-
+        searchInput.addEventListener("keyup", event => {
+            if (event.key === "Enter") handleSearchClick();
+        });
     </script>
 </body>
-
-
 </html>

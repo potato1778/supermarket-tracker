@@ -1,45 +1,117 @@
+# app.py (Final Version)
+
 from flask import Flask, render_template, request, jsonify
-from api_communicator import *
+from flask_cors import CORS
+
+# 明确地导入我们需要的函数，而不是用 *
+from api_communicator import create_search_payload, fetch_search_results
 from database_manager import setup_database, store_products
 
+# 创建Flask应用实例
 app = Flask(__name__)
+# 为应用开启CORS，允许前端访问
+CORS(app)
+
+# ==============================================================================
+# "数据清洗车间" - 采纳了你的所有建议
+# ==============================================================================
+def clean_and_prepare_products(raw_product_list):
+    """
+    接收原始的商品列表，按照最精密的规则，清洗并标准化它。
+    这是保证前后端数据一致性的核心。
+    """
+    cleaned_products = []
+    if not isinstance(raw_product_list, list):
+        return cleaned_products
+
+    for product in raw_product_list:
+        if not isinstance(product, dict):
+            continue
+
+        pid = product.get("publicId")
+        name = product.get("name") or "未知商品"
+
+        if not pid:
+            continue
+
+        # --- 1. 新的价格提取逻辑 (按你的优先级) ---
+        price_type = "none"
+        price_value = None
+
+        if product.get("membershipPrice") is not None:
+            price_type = "membershipPrice"
+            price_value = product.get("membershipPrice")
+        elif product.get("appPrice") is not None:
+            price_type = "appPrice"
+            price_value = product.get("appPrice")
+        elif product.get("fromPrice") is not None:
+            price_type = "fromPrice"
+            price_value = product.get("fromPrice")
+        elif product.get("price") is not None:
+            price_type = "price"
+            price_value = product.get("price")
+
+        # --- 2. 最健壮的超市名称提取逻辑 ---
+        supermarket_name = "未知超市"
+        business_obj = product.get("business")
+        if isinstance(business_obj, dict):
+            supermarket_name = business_obj.get("name") or "未知超市"
+        
+        # --- 3. 组装最终的、干净的商品字典 ---
+        cleaned_product = {
+            "publicId": pid,
+            "name": name,
+            "price_type": price_type,
+            "price_value": price_value,
+            "supermarket": supermarket_name,
+            "image": product.get("image") or "https://via.placeholder.com/150?text=No+Image",
+            "unitPrice": product.get("unitPrice"),
+            "description": product.get("description")
+        }
+        
+        cleaned_products.append(cleaned_product)
+            
+    return cleaned_products
+
+# ==============================================================================
+# 路由 (Routes)
+# ==============================================================================
 
 @app.route("/")
 def index():
+    """渲染主页"""
     return render_template('index.html')
-
-@app.route("/about")
-def about_page():
-    return "This is the About Page for our Supermarket Tracker!"
-
-@app.route("/contact")
-def contact_page():
-    # 2. 不再返回字符串，而是调用 render_template 函数
-    #    告诉它去渲染 'templates' 文件夹下的哪个文件
-    return render_template('contact.html') # <-- 关键的改变！
 
 @app.route("/search")
 def search_api():
-    #setup_database() 应该开始初始化
+    """核心的搜索API接口"""
     keyword = request.args.get("keyword")
     if not keyword:
-        # 返回一个标准的JSON错误响应，并附带400状态码
         return jsonify({"error": "A 'keyword' query parameter is required."}), 400
-    
-    print(f"收到搜索请求，关键词: '{keyword}'")
 
     payload = create_search_payload(keyword)
     api_data = fetch_search_results(payload)
 
-    # c. 对API返回结果进行健壮性检查
     if not api_data:
-        return jsonify({"error": "Failed to fetch data from the upstream API."}), 502 # 502 Bad Gateway
-    
-    product_list = api_data.get("value", {}).get("data")    
-    store_products(product_list, keyword)  # ← 保存数据
+        return jsonify({"error": "Failed to fetch data from upstream API."}), 502
 
-    return jsonify(product_list)
+    raw_product_list = api_data.get("value", {}).get("data")
+    if raw_product_list is None:
+        return jsonify({"error": "Upstream API returned an unexpected format."}), 500
+
+    # 使用我们的清洗函数
+    final_product_list = clean_and_prepare_products(raw_product_list)
+
+    # 存储清洗过的数据
+    store_products(final_product_list, keyword)
+
+    # 将清洗过的数据返回给前端
+    return jsonify(final_product_list)
+
+# ==============================================================================
+# 程序主入口
+# ==============================================================================
 
 if __name__ == "__main__":
-    setup_database()  # ← 启动时初始化一次
-    app.run(debug=True, use_reloader=False)
+    setup_database()
+    app.run(debug=True)
