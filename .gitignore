@@ -1,0 +1,35 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# --- virtualenv ---
+.venv/
+venv/
+env/
+
+# --- 本地数据库：抓取产物，不进仓库 ---
+# 见 README「数据与合规」一节：仓库只放代码，不放抓来的数据。
+*.db
+*.sqlite
+*.sqlite3
+
+# --- 凭据 ---
+.env
+.env.*
+!.env.example
+
+# --- 抓取 / 导出产物 ---
+data/
+out/
+*.csv
+
+# --- 编辑器 / 系统 ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# --- 本地临时备份 ---
+_backup_*/

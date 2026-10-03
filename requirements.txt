@@ -1,0 +1,11 @@
+# Runtime dependencies.
+# Install with:  pip install -r requirements.txt
+
+requests>=2.32
+
+# Web interface (app.py)
+Flask>=3.1
+flask-cors>=6.0
+
+# Development only
+pytest>=8.0

@@ -1,89 +1,96 @@
+"""SQLite storage for normalized offers.
+
+NOTE: this module is the legacy store used by app.py / main.py. It now routes
+every record through normalize.normalize_offer(), which fixes a bug where the
+web path wrote price=0.0 and supermarket=NULL for every row, because it read
+keys that the cleaning step does not produce.
+"""
+
 import sqlite3
+
+from normalize import normalize_offer
 
 DATABASE_FILE = "search_results.db"
 
+
+def _connect():
+    return sqlite3.connect(DATABASE_FILE)
+
+
 def setup_database():
+    con = _connect()
     try:
-        con = sqlite3.connect(DATABASE_FILE)
-        cur = con.cursor()
-        cur.execute("""
-                    CREATE TABLE IF NOT EXISTS products(
-                        id TEXT PRIMARY KEY,
-                        product_name TEXT NOT NULL,
-                        price REAL, 
-                        supermarket TEXT, 
-                        unit_price REAL, 
-                        keyword TEXT
-                    )
-                """)
+        con.execute(
+            """
+            CREATE TABLE IF NOT EXISTS products(
+                id TEXT PRIMARY KEY,
+                product_name TEXT NOT NULL,
+                price REAL,
+                supermarket TEXT,
+                unit_price REAL,
+                keyword TEXT
+            )
+            """
+        )
         con.commit()
     except sqlite3.Error as e:
         print(f"数据库错误：{e}")
-    con.close()
+        raise
+    finally:
+        con.close()
     print(f"数据库{DATABASE_FILE}已就绪")
 
+
 def store_products(product_list, keyword):
-    con = sqlite3.connect(DATABASE_FILE)
-    cur = con.cursor()
-    cur.execute
+    """Store a batch of offers.
+
+    Accepts raw payloads or cleaned products: normalize_offer() understands
+    both shapes, so the CLI and the web path cannot drift apart again.
+    """
+    if not product_list:
+        print(f"没有关于'{keyword}'的商品可存储。")
+        return 0
+
+    rows = []
+    for item in product_list:
+        offer = normalize_offer(item)
+        if not offer:
+            continue
+        rows.append(
+            (
+                offer["public_id"],
+                offer["name"] or "未知商品",
+                offer["price"],
+                offer["store"],
+                offer["unit_price"],
+                keyword,
+            )
+        )
+
+    if not rows:
+        print(f"关于'{keyword}'的 {len(product_list)} 条数据全部无效，已跳过。")
+        return 0
+
+    con = _connect()
     try:
-        for item in product_list:
-            id = item.get("publicId")
-            name = item.get("name")
-            price = item.get("price", 0.0)
-            business_name = item.get("business", {}).get("name")
-            unitPrice = item.get("unitPrice", 0.0)
-            cur.execute("""
-                INSERT OR REPLACE INTO products
-                (id, product_name, price, supermarket, unit_price, keyword)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (id, name, price, business_name, unitPrice, keyword))
+        con.executemany(
+            """
+            INSERT OR REPLACE INTO products
+            (id, product_name, price, supermarket, unit_price, keyword)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            rows,
+        )
         con.commit()
-        print(f"{len(product_list)}件关于'{keyword}'的商品已成功存入数据库。")
     except sqlite3.Error as e:
         print(f"错误：{e}")
-    
+        raise
+    finally:
+        con.close()
+
+    print(f"{len(rows)}件关于'{keyword}'的商品已成功存入数据库。")
+    return len(rows)
+
+
 if __name__ == "__main__":
-    # --- 测试 setup_database ---
-    print("--- 正在初始化数据库 ---")
     setup_database()
-    print("初始化完成。")
-
-    # --- 测试 store_products ---
-    # 1. 创建一些假的、用于测试的商品数据
-    #    这个结构需要和你API返回的商品字典结构保持一致
-    fake_products = [
-        {
-            'publicId': 'test_id_1',
-            'name': '测试牛奶A',
-            'price': 10.5,
-            'business': {'name': '测试超市1'},
-            'unitPrice': 10.5,
-            'description': '这是一个测试商品'
-        },
-        {
-            'publicId': 'test_id_2',
-            'name': '测试奶酪B',
-            'price': 25.0,
-            'business': {'name': '测试超市2'},
-            'unitPrice': 50.0,
-            'description': '这是另一个测试商品'
-        },
-        {
-            'publicId': 'test_id_1', # 注意！这是一个重复的ID
-            'name': '测试牛奶A-新价格',
-            'price': 9.9, # 价格更新了
-            'business': {'name': '测试超市1'},
-            'unitPrice': 9.9,
-            'description': '这是一个更新后的测试商品'
-        }
-    ]
-    test_keyword = "测试"
-
-    print(f"\n--- 正在存储 '{test_keyword}' 的 {len(fake_products)} 条假数据 ---")
-    
-    # 2. 调用你的函数来存储这些假数据
-    store_products(fake_products, test_keyword)
-
-    print("\n存储测试完成。请使用DB Browser for SQLite检查 'search_results.db'。")
-    print("你应该会看到两条记录（test_id_1的数据被更新了），并且keyword都是'测试'。")
