@@ -1,6 +1,6 @@
 # Requirements — Swedish Grocery Offer Tracker
 
-Status: living document. Last updated 2026-10-04.
+Status: living document. Last updated 2026-10-07.
 Owner: Reese (`potato1778`).
 
 ---
@@ -234,7 +234,7 @@ introduce a second, disagreeing implementation.
 |---|---|---|
 | **M0 — Hygiene** | Remove committed data, fix the store bug, add dependencies | Done |
 | **M1 — Comparable data** | Ingest with paging, normalize, store, price history, ranking, search | Done |
-| **M2 — Trustworthy** | Test suite, CI, source drift canary | Next |
+| **M2 — Trustworthy** | Test suite, CI, source drift canary | Done |
 | **M3 — Complete** | Pack-size extraction; unblocks `piece` categories and Lidl | Planned |
 | **M4 — Useful** | Digest notification with idempotency | Planned |
 | **M5 — Presentation** | Rewire the web UI to the new data layer, README, Docker | Planned |
@@ -245,23 +245,23 @@ introduce a second, disagreeing implementation.
 
 | Requirement | State | Evidence |
 |---|---|---|
-| FR-1 source A | Done | 4 pages, 80 records, zero duplicates |
-| FR-1 source B | Blocked on FR-8 | Lidl exposes no numeric unit price |
-| FR-2 | Done | `normalize.py`; both raw and cleaned shapes map to the same keys |
-| FR-3 | Done | Second ingest: 0 new, 0 updated, 82 unchanged; `first_seen` preserved |
-| FR-4 | Done | 187 observations for 187 offers |
-| FR-5 | Done | `mjolk` returns `Mjölk`; `mjölkchoklad` matched by `choklad` |
-| FR-6 | Done | `cheapest kyckling` ranks 24.98 → 71.36 kr/kg across 23 stores |
-| FR-7 | Done | Laundry detergent split into liquid and powder categories |
+| FR-1 source A | Done | 4 pages, 80 records, zero duplicates; `tests/test_tjek.py` |
+| FR-1 source B | Blocked on FR-8 | Lidl exposes no numeric unit price; entry point watched by the canary |
+| FR-2 | Done | `normalize.py`; both raw and cleaned shapes map to the same keys; `tests/test_normalize.py` |
+| FR-3 | Done | Second ingest: 0 new, 0 updated, 82 unchanged; `first_seen` preserved; `tests/test_store.py` |
+| FR-4 | Done | 187 observations for 187 offers; `tests/test_store.py` |
+| FR-5 | Done | `mjolk` returns `Mjölk`; `mjölkchoklad` matched by `choklad`; `tests/test_search.py` |
+| FR-6 | Done | `cheapest kyckling` ranks 24.98 → 71.36 kr/kg across 23 stores; `tests/test_ranking.py` |
+| FR-7 | Done | Laundry detergent split into liquid and powder categories; `tests/test_ranking.py` |
 | FR-8 | Not started | — |
 | FR-9 | Not started | — |
-| FR-10 | Done | 15 rankable categories, 2 awaiting FR-8 |
+| FR-10 | Done | 15 rankable categories, 2 awaiting FR-8; `tests/test_categories.py` |
 | FR-11 | Partial | `fetch` and `purge` exist; no scheduler, no run log |
 | NFR-1 | Done | Data untracked, `.gitignore` in place |
-| NFR-2 | Done | 25 s timeout, 0.6 s between pages, 40-page cap |
-| NFR-3 | Done | Zero unit prices treated as unknown, not free |
-| NFR-4 | Done | Verified by re-running ingest |
-| NFR-5 | Not started | — |
-| NFR-6 | Not started | — |
-| NFR-7 | Done | Runs on Windows, no Docker required |
+| NFR-2 | Done | 25 s timeout, 0.6 s between pages, 40-page cap; asserted in `tests/test_tjek.py` |
+| NFR-3 | Done | Zero unit prices treated as unknown, not free; `tests/test_normalize.py`, `tests/test_ranking.py` |
+| NFR-4 | Done | Verified by re-running ingest, and by `tests/test_store.py` |
+| NFR-5 | Done | `tools/canary.py`; daily via `.github/workflows/canary.yml`. 2026-10-07 live run: 186 stores, 86/86 checkable records reconciled |
+| NFR-6 | Done | 283 tests in `tests/`, run by `.github/workflows/ci.yml` on Linux and Windows |
+| NFR-7 | Done | Runs on Windows, no Docker required; CI includes a Windows job |
 | NFR-8 | Partial | CLI declares the unit; exclusions are not yet reported |

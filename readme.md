@@ -11,7 +11,8 @@ is why price history exists.
 ## Status
 
 Working: ingestion, normalization, storage, price history, search, and per-unit
-ranking across stores.
+ranking across stores. Covered by an offline test suite that runs in CI, plus a
+source drift canary that watches both upstream sources.
 
 Not yet: pack-size extraction, which would unlock both the per-piece categories
 and the Lidl source. Notifications and a web interface on top of the new data
@@ -95,6 +96,43 @@ python cli.py stats
 
 python app.py                       # earlier Flask interface
 ```
+
+## Tests
+
+The suite is offline and hermetic — no test touches the network. Transport is
+faked at the one seam the paging loop uses, so what is tested is the logic that
+decides when to stop, what to skip and what to keep.
+
+```bash
+python -m pytest
+```
+
+`conftest.py` sits at the repository root, which is what lets the tests import
+the top-level modules without an installable package. The database fixture is
+in-memory, so a test run can never write to `offers.db`.
+
+## Source drift canary
+
+Neither source is documented or supported. The dangerous failure is a silent
+one: the endpoint keeps answering `200` while a field is renamed or `unitPrice`
+stops meaning "price per base unit", and every ranking is then quietly wrong.
+`tools/canary.py` polls the live sources and asserts the documented assumptions:
+
+```bash
+python tools/canary.py            # human readable
+python tools/canary.py --json     # machine readable
+```
+
+Exit codes are the interface: `0` no drift, `1` drift, `2` unreachable. The
+third is deliberately separate — a network failure is not a drift signal, and a
+scheduler should retry rather than "fix" it. `.github/workflows/canary.yml` runs
+it daily, and downgrades `2` to a warning so a blocked runner does not look like
+a broken source.
+
+The one that earns its keep is the semantic check: for each record it verifies
+that `unitPrice` still reconciles with *some* documented price field divided by
+the pack size. That is what would catch the source redefining the field, which
+no amount of schema checking would notice.
 
 ## Notes
 

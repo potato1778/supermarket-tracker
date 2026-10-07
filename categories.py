@@ -100,7 +100,9 @@ CATEGORIES = {
     },
     "olja": {
         "labels": {"sv": "Matolja", "en": "Cooking oil", "zh": "食用油"},
-        "match": ["olja", "olivolja", "rapsolja"],
+        # "olivolja" used to sit in match as well, where it was dead: a term in
+        # both lists is always excluded, so it could never contribute a result.
+        "match": ["olja", "rapsolja"],
         "exclude": ["olivolja"],
         "allowed_base_units": ["liter"],
         "canonical_unit": "l",
