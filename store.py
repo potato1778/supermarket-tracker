@@ -15,6 +15,7 @@ be diacritic-folded first (see normalize.fold).
 from __future__ import annotations
 
 import datetime as dt
+import re
 import sqlite3
 
 from normalize import fold
@@ -164,20 +165,47 @@ def upsert_offers(con, offers, observed_on=None):
     return {"new": new, "updated": updated, "unchanged": unchanged}
 
 
+def _parse_ts(value):
+    """Parse a source timestamp into an aware datetime, or None.
+
+    The source writes offsets as "+0000" while Python writes "+00:00", so a
+    plain string comparison between the two is not reliable. Parse instead.
+    """
+    if not value:
+        return None
+    text = str(value).strip()
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    # "+0000" -> "+00:00"
+    if len(text) >= 5 and text[-5] in "+-" and text[-4:].isdigit():
+        text = text[:-5] + text[-5:-2] + ":" + text[-2:]
+    try:
+        parsed = dt.datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=dt.timezone.utc)
+    return parsed
+
+
 def purge_expired(con, now=None):
     """Delete offers whose validity window has closed.
 
-    Offers without a valid_until are kept: we cannot tell whether they expired,
-    and silently dropping them would hide data.
+    Offers without a parseable valid_until are kept. We cannot tell whether
+    they expired, and silently dropping them would hide data.
     """
-    now = now or dt.datetime.now(dt.timezone.utc).isoformat()
-    stale = [
-        row["public_id"]
-        for row in con.execute(
-            "SELECT public_id FROM offer WHERE valid_until IS NOT NULL AND valid_until < ?",
-            (now,),
-        )
-    ]
+    cutoff = now or dt.datetime.now(dt.timezone.utc)
+    if isinstance(cutoff, str):
+        cutoff = _parse_ts(cutoff) or dt.datetime.now(dt.timezone.utc)
+
+    stale = []
+    for row in con.execute(
+        "SELECT public_id, valid_until FROM offer WHERE valid_until IS NOT NULL"
+    ):
+        expiry = _parse_ts(row["valid_until"])
+        if expiry is not None and expiry < cutoff:
+            stale.append(row["public_id"])
+
     for public_id in stale:
         con.execute("DELETE FROM offer_fts WHERE public_id = ?", (public_id,))
         con.execute("DELETE FROM offer WHERE public_id = ?", (public_id,))
@@ -221,6 +249,32 @@ def search(con, text, limit=50):
     return [dict(r) for r in rows]
 
 
+def _words(text):
+    """Split folded text into word tokens."""
+    return [w for w in re.split(r"[^a-z0-9]+", text or "") if w]
+
+
+def _matches_terms(name_folded, terms):
+    """Whether any term sits at a word boundary of the name.
+
+    Plain substring matching is wrong on Swedish product names. "ost" as a raw
+    substring matches "kycklingbröstfilé", which put a chicken product at the
+    top of the cheese ranking. Requiring the term to start or end a word keeps
+    the compounds that matter, because Swedish puts the head last:
+    "hushållsost" ends with "ost" and "ostkaka" starts with it, while the "ost"
+    inside "bröstfilé" is interior noise.
+    """
+    words = _words(name_folded)
+    for term in terms:
+        folded = fold(term)
+        if not folded:
+            continue
+        for word in words:
+            if word.startswith(folded) or word.endswith(folded):
+                return True
+    return False
+
+
 def cheapest(con, category, limit=20):
     """Rank current offers in one category by unit price.
 
@@ -228,31 +282,61 @@ def cheapest(con, category, limit=20):
     Mixing kilograms with litres (or with per-piece prices) would produce a
     number that looks precise and is meaningless, so those are excluded rather
     than converted.
+
+    Matching happens in Python rather than in SQL, because word-boundary
+    matching on compounds is not expressible with LIKE.
     """
     allowed = category["allowed_base_units"]
+
+    candidates = con.execute(
+        "SELECT * FROM offer WHERE base_unit IN (%s) "
+        "AND unit_price IS NOT NULL AND unit_price > 0 "
+        "AND (currency IS NULL OR currency = 'SEK')"
+        % ",".join("?" * len(allowed)),
+        list(allowed),
+    )
+
     match_terms = category["match"]
     exclude_terms = category.get("exclude", [])
 
-    where = ["base_unit IN (%s)" % ",".join("?" * len(allowed))]
-    params = list(allowed)
+    rows = []
+    for row in candidates:
+        record = dict(row)
+        name = record["name_folded"]
+        if not _matches_terms(name, match_terms):
+            continue
+        if exclude_terms and _matches_terms(name, exclude_terms):
+            continue
+        rows.append(record)
 
-    where.append("unit_price IS NOT NULL AND unit_price > 0")
-    where.append("(currency IS NULL OR currency = 'SEK')")
+    rows.sort(key=lambda r: r["unit_price"])
+    return rows[:limit]
 
-    like_any = " OR ".join("name_folded LIKE ?" for _ in match_terms)
-    where.append("(%s)" % like_any)
-    params += ["%" + fold(t) + "%" for t in match_terms]
 
-    for term in exclude_terms:
-        where.append("name_folded NOT LIKE ?")
-        params.append("%" + fold(term) + "%")
+def by_store(con, store, limit=1000):
+    """Every current offer from one store.
 
-    sql = (
-        "SELECT * FROM offer WHERE %s ORDER BY unit_price ASC LIMIT ?"
-        % " AND ".join(where)
+    Ordered by department, then by unit price with unknown prices last, so a
+    store's list reads as groups rather than as one flat dump.
+    """
+    rows = con.execute(
+        "SELECT * FROM offer WHERE store = ? "
+        "ORDER BY COALESCE(department, 'zz'), (unit_price IS NULL), unit_price ASC "
+        "LIMIT ?",
+        (store, limit),
     )
-    params.append(limit)
-    return [dict(r) for r in con.execute(sql, params)]
+    return [dict(r) for r in rows]
+
+
+def store_names(con):
+    """Store names present in the database, with offer counts."""
+    return [
+        {"store": r["store"], "offers": r["n"]}
+        for r in con.execute(
+            "SELECT store, COUNT(*) AS n FROM offer "
+            "WHERE store IS NOT NULL GROUP BY store ORDER BY n DESC"
+        )
+    ]
 
 
 def price_history(con, public_id):

@@ -1,11 +1,15 @@
 """Command line entry point.
 
-    python cli.py fetch                 # fetch offers for every category term
-    python cli.py fetch mjölk kyckling  # fetch specific terms
-    python cli.py cheapest kyckling     # rank by unit price
-    python cli.py search mjolk          # free text search (diacritics optional)
+    python cli.py fetch                          # fetch every category term
+    python cli.py fetch mjölk kyckling           # fetch specific terms
+    python cli.py fetch --store Willys           # fetch everything one store has
+    python cli.py fetch --store Willys "Willys Hemma" --pages 5
+    python cli.py stores                         # stores present in the database
+    python cli.py deals Willys                   # what is on at one store
+    python cli.py cheapest kyckling              # rank by unit price
+    python cli.py search mjolk                   # free text search
     python cli.py stats
-    python cli.py purge                 # drop offers past their validity
+    python cli.py purge                          # drop offers past their validity
 """
 
 from __future__ import annotations
@@ -44,36 +48,126 @@ def _category_terms():
 
 
 def cmd_fetch(args):
-    terms = args.terms or _category_terms()
     con = store.connect()
     store.init_db(con)
-
-    print(f"抓取 {len(terms)} 个关键词，每个最多 {args.pages} 页…\n")
     total = {"new": 0, "updated": 0, "unchanged": 0}
 
-    for term in terms:
+    if args.store:
+        # Resolve store names to ids. Fetching by store beats guessing search
+        # terms: it returns everything the store has, not a keyword sample.
         try:
-            offers = tjek.fetch(term, max_pages=args.pages, verbose=args.verbose)
-        except Exception as exc:  # noqa: BLE001 - one bad term must not stop the run
-            print(f"  [{term}] 失败：{type(exc).__name__}: {exc}")
-            continue
+            directory = tjek.list_businesses()
+        except Exception as exc:  # noqa: BLE001
+            print(f"取超市列表失败：{type(exc).__name__}: {exc}")
+            return 1
 
-        if not offers:
-            if args.verbose:
-                print(f"  [{term}] 无结果")
-            continue
+        lowered = {name.lower(): pid for name, pid in directory.items()}
+        jobs = []
+        for wanted in args.store:
+            pid = directory.get(wanted) or lowered.get(wanted.lower())
+            if not pid:
+                near = [n for n in directory if wanted.lower() in n.lower()][:5]
+                print(f"  [!] 找不到超市 '{wanted}'" + (f"，相近的有：{near}" if near else ""))
+                continue
+            jobs.append((wanted, pid))
 
-        counts = store.upsert_offers(con, offers)
-        for key in total:
-            total[key] += counts[key]
-        print(
-            f"  [{term:<18}] 抓到 {len(offers):>4} 条 | "
-            f"新 {counts['new']:>4} | 变动 {counts['updated']:>3} | 未变 {counts['unchanged']:>4}"
-        )
+        if not jobs:
+            con.close()
+            return 1
+
+        print(f"按超市抓取 {len(jobs)} 家，每家最多 {args.pages} 页…\n")
+        for name, pid in jobs:
+            try:
+                offers = tjek.fetch_business(
+                    pid, max_pages=args.pages, verbose=args.verbose, label=name
+                )
+            except Exception as exc:  # noqa: BLE001
+                print(f"  [{name}] 失败：{type(exc).__name__}: {exc}")
+                continue
+            if not offers:
+                print(f"  [{name:<18}] 该超市当前没有可抓取的优惠")
+                continue
+            counts = store.upsert_offers(con, offers)
+            for key in total:
+                total[key] += counts[key]
+            print(
+                f"  [{name:<18}] 抓到 {len(offers):>4} 条 | "
+                f"新 {counts['new']:>4} | 变动 {counts['updated']:>3} | 未变 {counts['unchanged']:>4}"
+            )
+    else:
+        terms = args.terms or _category_terms()
+        print(f"抓取 {len(terms)} 个关键词，每个最多 {args.pages} 页…\n")
+        for term in terms:
+            try:
+                offers = tjek.fetch(term, max_pages=args.pages, verbose=args.verbose)
+            except Exception as exc:  # noqa: BLE001 - one bad term must not stop the run
+                print(f"  [{term}] 失败：{type(exc).__name__}: {exc}")
+                continue
+
+            if not offers:
+                if args.verbose:
+                    print(f"  [{term}] 无结果")
+                continue
+
+            counts = store.upsert_offers(con, offers)
+            for key in total:
+                total[key] += counts[key]
+            print(
+                f"  [{term:<18}] 抓到 {len(offers):>4} 条 | "
+                f"新 {counts['new']:>4} | 变动 {counts['updated']:>3} | 未变 {counts['unchanged']:>4}"
+            )
 
     print(f"\n合计：新增 {total['new']}，价格变动 {total['updated']}，未变 {total['unchanged']}")
     _print_stats(store.stats(con))
     con.close()
+    return 0
+
+
+def cmd_stores(args):
+    con = store.connect()
+    store.init_db(con)
+    rows = store.store_names(con)
+    print(f"库里的超市（{len(rows)} 家）：\n")
+    for row in rows:
+        print(f"  {row['store']:<30} {row['offers']:>5} 条")
+    con.close()
+    return 0
+
+
+def cmd_deals(args):
+    con = store.connect()
+    store.init_db(con)
+    rows = store.by_store(con, args.store, limit=args.limit)
+
+    if not rows:
+        known = [r["store"] for r in store.store_names(con)]
+        near = [s for s in known if args.store.lower() in (s or "").lower()][:5]
+        print(f"库里没有 '{args.store}' 的优惠。" + (f"相近的：{near}" if near else ""))
+        print("先抓：python cli.py fetch --store \"%s\"" % args.store)
+        con.close()
+        return 1
+
+    by_dept = {}
+    for row in rows:
+        by_dept.setdefault(row["department"] or "(未分类)", []).append(row)
+
+    print(f"{args.store} —— 当前 {len(rows)} 条优惠，按类别分组\n")
+    for dept in sorted(by_dept):
+        group = by_dept[dept]
+        print(f"── {dept} ({len(group)}) " + "─" * max(0, 44 - len(dept)))
+        for row in group:
+            unit = ""
+            if row["unit_price"]:
+                symbol = BASE_UNIT_SYMBOL.get(row["base_unit"], row["base_unit"] or "?")
+                unit = f"{row['unit_price']:>8.2f} kr/{symbol}"
+            price = f"{row['price']:>7.2f}" if row["price"] is not None else "      -"
+            size = ""
+            if row["size_from"] and row["size_to"]:
+                size = f"  {row['size_from']:g}-{row['size_to']:g} {row['unit_symbol'] or ''}".rstrip()
+            print(f"   {row['name'][:40]:<40} {price} kr {unit}{size}")
+        print()
+    con.close()
+    return 0
 
 
 def cmd_cheapest(args):
@@ -162,9 +256,19 @@ def main(argv=None):
 
     p = sub.add_parser("fetch", help="抓取优惠并入库")
     p.add_argument("terms", nargs="*", help="瑞典语关键词；省略则用全部分类词")
-    p.add_argument("--pages", type=int, default=3, help="每个关键词最多翻几页（默认 3）")
+    p.add_argument("--store", nargs="+", metavar="NAME",
+                   help="按超市抓（如 --store Willys \"Willys Hemma\"）；给了这个就忽略关键词")
+    p.add_argument("--pages", type=int, default=3, help="每个关键词/每家超市最多翻几页（默认 3）")
     p.add_argument("--verbose", action="store_true")
     p.set_defaults(func=cmd_fetch)
+
+    p = sub.add_parser("stores", help="列出库里已有的超市")
+    p.set_defaults(func=cmd_stores)
+
+    p = sub.add_parser("deals", help="某家超市当前所有优惠，按类别分组")
+    p.add_argument("store")
+    p.add_argument("--limit", type=int, default=1000)
+    p.set_defaults(func=cmd_deals)
 
     p = sub.add_parser("cheapest", help="按单位价排名")
     p.add_argument("category")
