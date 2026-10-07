@@ -30,7 +30,11 @@ The managed Python environment does not have `requests`. Use the project venv.
 |---|---|
 | Milestones | M0 done, M1 done, M2 next, M3 to M5 planned |
 | Data | Willys 119 offers, Willys Hemma 33, mostly valid to 2026-10-11 |
-| Blocked | GitHub token expired 2026-10-06. Commit `627c7f0` is local only. |
+| Next up | Tests, CI, and a source drift canary (M2) |
+
+Machine-specific notes, including local credentials and uncommitted work, are
+deliberately kept out of this file because the repository is public. See
+`NOTES.local.md` (not tracked) on the machine that runs the tool.
 
 ## What works
 
