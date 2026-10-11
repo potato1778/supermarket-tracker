@@ -36,3 +36,6 @@ _backup_*/
 
 # --- 本机笔记：含凭据路径与本机状态，绝不入库 ---
 NOTES.local.md
+
+# --- WorkBuddy 项目数据（含本机笔记，同样绝不入库）---
+.workbuddy-ai/

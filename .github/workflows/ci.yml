@@ -32,9 +32,9 @@ jobs:
             python: "3.13"
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python }}
           cache: pip
@@ -45,11 +45,19 @@ jobs:
           python -m pip install -r requirements.txt
 
       - name: Report the SQLite build
-        # Search depends on the FTS5 trigram tokenizer. Printing the version
-        # here turns a mystery failure into a one-line diagnosis.
+        # Search depends on the FTS5 trigram tokenizer, and each Python build
+        # bundles its own SQLite. Printing the version turns a mystery failure
+        # into a one-line diagnosis.
+        #
+        # Quoting note: `run` uses bash on Linux but pwsh on Windows, and a
+        # backslash is NOT an escape character in PowerShell. Writing \" here
+        # makes pwsh fail to parse the step and the job dies before a single
+        # test runs — which is exactly what happened on the first Windows run.
+        # Hence single quotes inside double quotes, and a bare
+        # `tokenize=trigram` (FTS5 accepts an unquoted tokenizer name).
         run: |
           python -c "import sqlite3; print('sqlite', sqlite3.sqlite_version)"
-          python -c "import sqlite3; c=sqlite3.connect(':memory:'); c.execute(\"CREATE VIRTUAL TABLE t USING fts5(x, tokenize='trigram')\"); print('fts5 trigram: ok')"
+          python -c "import sqlite3; c=sqlite3.connect(':memory:'); c.execute('CREATE VIRTUAL TABLE t USING fts5(x, tokenize=trigram)'); print('fts5 trigram: ok')"
 
       - name: Run the test suite
         run: python -m pytest
